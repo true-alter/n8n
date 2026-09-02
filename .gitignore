@@ -1,0 +1,31 @@
+node_modules/
+dist/
+coverage/
+.nyc_output/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artefacts
+*.tsbuildinfo
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Lockfiles. npm is this repo's package manager, as CONTRIBUTING.md and
+# README.md both say. Other managers' lockfiles are not this repo's format.
+yarn.lock
+pnpm-lock.yaml
