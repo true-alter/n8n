@@ -208,8 +208,6 @@ them.
 | **[sdk](https://github.com/true-alter/sdk)** | Reading identity from your own code. |
 | **[obsidian](https://github.com/true-alter/obsidian)** | ~Alter inside an Obsidian vault, on-device. |
 | **[mcp-ollama](https://github.com/true-alter/mcp-ollama)** | Local models, for work that should stay on the machine it runs on. |
-| **[agentverse](https://github.com/true-alter/agentverse)** | ~Alter identity, answered inside Fetch.ai's Agentverse. |
-| **[ebpf](https://github.com/true-alter/ebpf)** | The record of what ran under your name, read from the kernel. |
 | **n8n** | The same identity primitives, called from an n8n workflow. **You are here.** |
 
 Bug reports and small patches are welcome, see

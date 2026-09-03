@@ -6,7 +6,7 @@ import type {
 	IDataObject,
 	IHttpRequestOptions,
 } from 'n8n-workflow';
-import { NodeOperationError, OperationalError, UserError } from 'n8n-workflow';
+import { ApplicationError, NodeOperationError } from 'n8n-workflow';
 import { createHash } from 'node:crypto';
 
 const DEFAULT_MCP_ENDPOINT = 'https://mcp.truealter.com/api/v1/mcp';
@@ -86,7 +86,7 @@ interface McpJsonRpcResult {
  */
 function unwrapMcpResult(payload: McpJsonRpcResult): Record<string, unknown> {
 	if (payload?.error) {
-		throw new OperationalError(
+		throw new ApplicationError(
 			`~alter MCP error ${payload.error.code}: ${payload.error.message}`,
 		);
 	}
@@ -115,7 +115,7 @@ export function solveProofOfWork(
 	maxBits = 26,
 ): { nonce: string; attempts: number } {
 	if (bits > maxBits) {
-		throw new UserError(
+		throw new ApplicationError(
 			`Proof-of-work difficulty ${bits} exceeds this node's ceiling of ${maxBits} bits`,
 		);
 	}
@@ -141,7 +141,7 @@ export function solveProofOfWork(
 			return { nonce, attempts };
 		}
 		if (attempts % 4096 === 0 && Date.now() > deadline) {
-			throw new OperationalError(
+			throw new ApplicationError(
 				`No nonce found for ${bits} bits in ${maxSeconds}s after ${attempts} attempts`,
 			);
 		}
@@ -328,18 +328,36 @@ export class Alter implements INodeType {
 							json: true,
 							disableFollowRedirect: true,
 						});
-						const challengeData = unwrapMcpResult(challengeResponse as McpJsonRpcResult);
-						const challenge = challengeData.challenge as string | undefined;
-						const difficulty = Number(challengeData.difficulty ?? 0);
-						if (!challenge) {
+						// Both helpers are pure and hold no node handle, so they raise
+						// ApplicationError. Re-raise as NodeOperationError here so a
+						// registration failure is attributed to this node and this item,
+						// the way every other failure on this path already is.
+						let challenge: string | undefined;
+						let nonce: string;
+						try {
+							const challengeData = unwrapMcpResult(
+								challengeResponse as McpJsonRpcResult,
+							);
+							challenge = challengeData.challenge as string | undefined;
+							const difficulty = Number(challengeData.difficulty ?? 0);
+							if (!challenge) {
+								throw new NodeOperationError(
+									this.getNode(),
+									'Registration challenge returned no challenge token',
+									{ itemIndex },
+								);
+							}
+							nonce = solveProofOfWork(challenge, difficulty).nonce;
+						} catch (powError) {
+							if (powError instanceof NodeOperationError) {
+								throw powError;
+							}
 							throw new NodeOperationError(
 								this.getNode(),
-								'Registration challenge returned no challenge token',
+								(powError as Error).message,
 								{ itemIndex },
 							);
 						}
-
-						const { nonce } = solveProofOfWork(challenge, difficulty);
 
 						toolArgs.agent_name = agentName;
 						toolArgs.challenge = challenge;

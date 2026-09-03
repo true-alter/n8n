@@ -31,9 +31,9 @@
   "scripts": {
     "build": "tsc && gulp build:icons",
     "dev": "tsc --watch",
-    "format": "prettier nodes credentials --write",
-    "lint": "eslint nodes credentials package.json",
-    "lintfix": "eslint nodes credentials package.json --fix",
+    "format": "prettier nodes --write",
+    "lint": "eslint nodes package.json",
+    "lintfix": "eslint nodes package.json --fix",
     "prepublishOnly": "npm run build && npm run lint -s",
     "test": "jest"
   },
@@ -42,9 +42,6 @@
   ],
   "n8n": {
     "n8nNodesApiVersion": 1,
-    "credentials": [
-      "dist/credentials/AlterApi.credentials.js"
-    ],
     "nodes": [
       "dist/nodes/Alter/Alter.node.js"
     ]
