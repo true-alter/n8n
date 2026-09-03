@@ -5,11 +5,17 @@
 # maintainer approves it with 2FA before it reaches installers. The reasoning
 # sits on the staging step below rather than being repeated here.
 #
-# THIS FILE RUNS ON THE PUBLIC MIRROR, true-alter/n8n, NOT HERE. It is copied
-# across by the monorepo's export curation, because npm refuses `--provenance`
-# from a private repository with HTTP 422, so a release from this repository
-# could never have published with an attestation. Editing it here is correct
-# and it reaches the mirror on the next cut.
+# THE RELEASE RUNS FROM true-alter/n8n. npm mints provenance from GitHub's own
+# OIDC provider and refuses `--provenance` from a private repository with HTTP
+# 422, so the release has to run where an anonymous visitor can read the
+# workflow that produced the attestation. true-alter/n8n is the
+# trusted-publisher repository for @truealter/n8n-nodes-alter, and this file's
+# path is part of that configuration, so renaming it breaks the release.
+#
+# THIS FILE IS THE SAME BYTES IN TWO PLACES, so it is written to read
+# correctly from either. It says true-alter/n8n by name rather than "here" or
+# "the mirror", because a locational word is resolved by whoever is reading
+# and inverts depending on which copy they opened.
 #
 # Triggers on v*.*.* tag push, and on a hand dispatch, which exists because an
 # approval happens off GitHub and nothing else would re-run the steps that
@@ -17,21 +23,20 @@
 #
 # Pre-requisites for a working release:
 #   1. A trusted publisher configured for this package on npmjs.com, naming
-#      the MIRROR repository and this workflow path. There is no secret to
+#      true-alter/n8n and this workflow path. There is no secret to
 #      set. Every ALTER package goes to npm through trusted publishing on
 #      GitHub OIDC, with the package's own "require 2FA and disallow tokens"
 #      setting on, which closes the token route while leaving OIDC working.
 #      The publisher's allowed action must permit `npm stage publish`, which
 #      is what this workflow runs.
-#   2. THE FIRST VERSION CANNOT COME FROM HERE. npm does not show a package's
-#      Trusted Publisher section until at least one version exists
+#   2. THE FIRST VERSION CANNOT COME FROM THIS WORKFLOW. npm does not show a
+#      package's Trusted Publisher section until at least one version exists
 #      (npm/cli#8544, open), so 0.1.0 has to be published by hand under 2FA,
-#      which mints no token and leaves the trusted-publishing ruling intact,
-#      and the publisher is configured afterwards. The version guard on the
-#      staging step below is what stops the tag that follows that bootstrap
-#      dying on EPUBLISHCONFLICT.
-#   3. The target version tag is pushed. On a machine with `tag.gpgsign` set
-#      globally, `git tag` opens an editor, so create the ref through the API
+#      which mints no token, and the publisher is configured afterwards. The
+#      version guard on the staging step below is what stops the tag that
+#      follows that bootstrap dying on EPUBLISHCONFLICT.
+#   3. The target version tag is pushed. If your git signs tags by default,
+#      `git tag` will open an editor, so create the ref through the API
 #      instead.
 #
 # Actions are pinned to full commit SHAs (H-001, pre-public audit 2026-04-18)
@@ -146,7 +151,7 @@ jobs:
 
       # No NODE_AUTH_TOKEN, deliberately. npm reads the OIDC token that
       # id-token: write mints and exchanges it with the registry itself, so
-      # nothing long-lived sits on this path and this repository holds no
+      # nothing long-lived sits on this path and true-alter/n8n holds no
       # credential to leak.
       #
       # THE CUT IS STAGED, NOT PUBLISHED, AND THAT IS WHAT MAKES IT
@@ -154,7 +159,8 @@ jobs:
       # OIDC permission denied for this action` on a plain publish, and staged
       # green from an otherwise identical job with no dashboard change in
       # between. `@truealter/cli` and `@truealter/sdk` hold the same posture.
-      # Staging is the only shape in this estate observed to authenticate.
+      # Staging is the only shape observed to authenticate across all four
+      # @truealter packages.
       #
       # IT CHANGES RELEASE SEMANTICS AND THAT IS ACCEPTED. A staged cut is not
       # live until a maintainer approves it with 2FA, so every release waits
@@ -177,7 +183,7 @@ jobs:
       #
       # IDEMPOTENT ON THE LIVE SIDE ONLY. A version already sitting in the
       # stage is not handled, deliberately: `npm stage list`'s output shape
-      # has not been observed from this repository and inventing a parse for
+      # has not been observed from true-alter/n8n and inventing a parse for
       # it would be a guess in the one step that must not guess. A duplicate
       # stage fails with the registry's own message, which is legible.
       - name: Stage the cut for approval, unless this version is already live
@@ -204,7 +210,7 @@ jobs:
           exit "$status"
 
       - name: Cut the release
-        # A reader who arrives from the npm listing lands on this repository,
+        # A reader who arrives from the npm listing lands on true-alter/n8n,
         # so a repository with no releases looks like nothing was ever cut
         # from it.
         #
