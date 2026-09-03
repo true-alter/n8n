@@ -1,17 +1,41 @@
-# npm publish with provenance for n8n verified-community-node policy.
+# Staged npm release with provenance for @truealter/n8n-nodes-alter, under the
+# n8n verified-community-node policy.
 #
-# Triggers on v*.*.* tag push. Pre-requisites for a working publish:
+# THE CUT IS STAGED, NOT PUBLISHED. A tag push stages the version and a
+# maintainer approves it with 2FA before it reaches installers. The reasoning
+# sits on the staging step below rather than being repeated here.
+#
+# THIS FILE RUNS ON THE PUBLIC MIRROR, true-alter/n8n, NOT HERE. It is copied
+# across by the monorepo's export curation, because npm refuses `--provenance`
+# from a private repository with HTTP 422, so a release from this repository
+# could never have published with an attestation. Editing it here is correct
+# and it reaches the mirror on the next cut.
+#
+# Triggers on v*.*.* tag push, and on a hand dispatch, which exists because an
+# approval happens off GitHub and nothing else would re-run the steps that
+# stood down while the version was staged.
+#
+# Pre-requisites for a working release:
 #   1. A trusted publisher configured for this package on npmjs.com, naming
-#      this repository and this workflow file. There is no secret to set. The
-#      ruling is that every ALTER package goes to npm through trusted
-#      publishing on GitHub OIDC, with the package's own "require 2FA and
-#      disallow tokens" setting on, which closes the token route while
-#      leaving OIDC working.
-#   2. The npm package is registered under @truealter (run `npm access` once).
-#   3. The target version tag is pushed (`git tag v0.1.0 && git push --tags`).
+#      the MIRROR repository and this workflow path. There is no secret to
+#      set. Every ALTER package goes to npm through trusted publishing on
+#      GitHub OIDC, with the package's own "require 2FA and disallow tokens"
+#      setting on, which closes the token route while leaving OIDC working.
+#      The publisher's allowed action must permit `npm stage publish`, which
+#      is what this workflow runs.
+#   2. THE FIRST VERSION CANNOT COME FROM HERE. npm does not show a package's
+#      Trusted Publisher section until at least one version exists
+#      (npm/cli#8544, open), so 0.1.0 has to be published by hand under 2FA,
+#      which mints no token and leaves the trusted-publishing ruling intact,
+#      and the publisher is configured afterwards. The version guard on the
+#      staging step below is what stops the tag that follows that bootstrap
+#      dying on EPUBLISHCONFLICT.
+#   3. The target version tag is pushed. On a machine with `tag.gpgsign` set
+#      globally, `git tag` opens an editor, so create the ref through the API
+#      instead.
 #
 # Actions are pinned to full commit SHAs (H-001, pre-public audit 2026-04-18)
-# to defend against tag-moving supply-chain attacks on the publish path.
+# to defend against tag-moving supply-chain attacks on the release path.
 #
 # Docs: https://docs.npmjs.com/generating-provenance-statements
 #       https://docs.n8n.io/integrations/creating-nodes/deploy/submit-community-nodes/
@@ -23,6 +47,7 @@ on:
     tags:
       # Exclude pre-release suffixes (v1.0.0-rc1 etc); pre-releases are a separate workflow.
       - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -34,10 +59,16 @@ jobs:
     # its OIDC token from GitHub's own Actions identity provider, and that
     # provider only issues to GitHub-hosted runners. Do NOT repoint this job
     # at any other runner. Without that token `--provenance` fails outright,
-    # and it fails at the publish step reading as an authentication problem,
+    # and it fails at the staging step reading as an authentication problem,
     # which sends the next reader hunting for a credential that was never the
     # cause. This constraint is specific to the release job.
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      # `contents: write` is what the release step needs. `id-token` is
+      # repeated because a job-level block REPLACES the workflow default
+      # rather than adding to it, and dropping it would silently break OIDC.
+      contents: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -46,19 +77,230 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      # npm's OIDC exchange with the registry arrived in 11.5.1, and a Node
-      # image can carry an npm older than that. Pinning the floor here makes a
-      # too-old npm fail at this step, where the message names the cause,
-      # rather than at the step below, where the same fault reads as an
-      # authentication failure and sends the reader hunting for a token.
-      - run: npm install -g npm@^11.5.1
+      # STAGED PUBLISHING'S FLOOR, WHICH IS HIGHER THAN THE EXCHANGE'S. The
+      # OIDC exchange arrived in npm 11.5.1, and @truealter/mcp-ollama cleared
+      # that floor on 11.17.0 while still being refused, so the floor is not
+      # the thing that makes a release authenticate. `npm stage` needs 11.15.0
+      # or newer, which is why the pin is `latest` rather than `^11.5.1`. The
+      # command is asserted rather than assumed: a too-old npm treats `stage`
+      # as an unknown argument and fails late with a message about the
+      # argument instead of about the version.
+      - name: Meet staged publishing's floor
+        run: |
+          set -euo pipefail
+          npm install -g npm@latest
+          npm --version
+          node --version
+          npm stage --help >/dev/null 2>&1 || {
+            echo "::error::release: this npm has no stage command. Needs 11.15.0 or newer."
+            exit 1
+          }
 
       - run: npm ci
+
+      # The tag is pushed by hand, so nothing else makes it agree with the
+      # manifest. A mismatch stages one version under another version's name,
+      # and npm has no undo once a stage is approved: the wrong number is
+      # taken forever and the release below would be cut against a tag
+      # describing a different tree. Cheap to check, impossible to walk back.
+      #
+      # Skipped on a hand dispatch, where the ref is a branch and there is no
+      # tag to agree with anything.
+      - name: Assert the tag names the version in package.json
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          tag="${GITHUB_REF_NAME}"
+          if [ "v${version}" != "${tag}" ]; then
+            echo "tag ${tag} does not name package.json version ${version}." >&2
+            exit 1
+          fi
+          echo "tag ${tag} matches package.json ${version}."
+
       - run: npm run lint
+
       - run: npm run build
+
+      # `prepublishOnly` runs build and lint, and it does NOT fire on a staged
+      # publish of a pre-made tarball. Both are run explicitly above instead,
+      # so nothing is skipped by taking this route.
+      - name: Pack
+        run: npm pack
+
+      - name: Pre-publish sanity (packed tarball carries a real dist/)
+        # package.json's `files` is an allowlist of dist/, so a tarball
+        # without it is an empty package that installs and does nothing. This
+        # checks the exact bytes the staging step sends rather than the source
+        # tree, so it catches anything the pack itself introduces.
+        run: |
+          set -euo pipefail
+          tarball=$(ls truealter-n8n-nodes-alter-*.tgz)
+          tmp=$(mktemp -d)
+          tar -xzf "$tarball" -C "$tmp"
+          if [ ! -d "$tmp/package/dist" ]; then
+            echo "::error::release: packed tarball has no package/dist. Refusing to stage."
+            exit 1
+          fi
+          rm -rf "$tmp"
 
       # No NODE_AUTH_TOKEN, deliberately. npm reads the OIDC token that
       # id-token: write mints and exchanges it with the registry itself, so
       # nothing long-lived sits on this path and this repository holds no
       # credential to leak.
-      - run: npm publish --access public --provenance
+      #
+      # THE CUT IS STAGED, NOT PUBLISHED, AND THAT IS WHAT MAKES IT
+      # AUTHENTICATE. @truealter/mcp-ollama was refused with `403 Forbidden -
+      # OIDC permission denied for this action` on a plain publish, and staged
+      # green from an otherwise identical job with no dashboard change in
+      # between. `@truealter/cli` and `@truealter/sdk` hold the same posture.
+      # Staging is the only shape in this estate observed to authenticate.
+      #
+      # IT CHANGES RELEASE SEMANTICS AND THAT IS ACCEPTED. A staged cut is not
+      # live until a maintainer approves it with 2FA, so every release waits
+      # on a human. Stated as the cost of the shape rather than discovered
+      # afterwards.
+      #
+      # THE EXCHANGE ASSERTION IS NOT DEBUG RESIDUE. npm attempts the OIDC
+      # exchange unconditionally and is written never to throw: every way it
+      # can fail returns undefined behind a log.verbose line a default run
+      # never prints. setup-node writes an .npmrc reading
+      # //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} and, with no
+      # secret to fill it, sets that variable to the literal placeholder
+      # XXXXX-XXXXX-XXXXX-XXXXX, so a refused exchange does not stop the step.
+      # It falls through to an unauthenticated PUT and the registry answers
+      # 404 on a package that is plainly there. That second failure cost three
+      # sessions across two days on @truealter/sdk. So the log is captured,
+      # replayed in full, and searched for the exchange's own refusal, which
+      # is reported as the error whatever status npm returned. Every other
+      # failure keeps npm's own status and message.
+      #
+      # IDEMPOTENT ON THE LIVE SIDE ONLY. A version already sitting in the
+      # stage is not handled, deliberately: `npm stage list`'s output shape
+      # has not been observed from this repository and inventing a parse for
+      # it would be a guess in the one step that must not guess. A duplicate
+      # stage fails with the registry's own message, which is legible.
+      - name: Stage the cut for approval, unless this version is already live
+        run: |
+          set -uo pipefail
+          version=$(node -p "require('./package.json').version")
+          if npm view "@truealter/n8n-nodes-alter@${version}" version >/dev/null 2>&1; then
+            echo "@truealter/n8n-nodes-alter@${version} is already on npm. Skipping."
+            exit 0
+          fi
+          tarball=$(ls truealter-n8n-nodes-alter-*.tgz)
+          status=0
+          npm stage publish "$tarball" --access public --provenance --tag latest \
+            --loglevel verbose > stage.log 2>&1 || status=$?
+          cat stage.log
+          if grep -q 'Failed token exchange request' stage.log; then
+            line=$(grep -m1 'Failed token exchange request' stage.log)
+            echo "::error::release: the registry REFUSED the OIDC exchange, so npm fell through to an unauthenticated PUT and the status below describes that retry, not the fault. ${line}"
+            exit 1
+          fi
+          if [ "$status" -eq 0 ]; then
+            echo "release: staged ${version} with tag latest. It is NOT live until approved with 2FA."
+          fi
+          exit "$status"
+
+      - name: Cut the release
+        # A reader who arrives from the npm listing lands on this repository,
+        # so a repository with no releases looks like nothing was ever cut
+        # from it.
+        #
+        # The tag is derived from package.json rather than GITHUB_REF_NAME,
+        # because a hand dispatch runs on a branch and that variable would
+        # read `main`. On a tag run the assertion above has already proved the
+        # two agree, so this is the same value by a route that survives both
+        # triggers.
+        #
+        # The release is cut even though the npm cut is only STAGED. The tag
+        # records which source was cut, which is true the moment the tag lands
+        # and stays true whether or not the stage is approved, and the body
+        # says plainly whether installers have it yet.
+        #
+        # Idempotent. A re-run on a version already cut stands down.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          tag="v${version}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release: ${tag} already exists, nothing to cut."
+            exit 0
+          fi
+          if npm view "@truealter/n8n-nodes-alter@${version}" version >/dev/null 2>&1; then
+            state="is on npm, with provenance."
+          else
+            state="is staged on npm and reaches installers when a maintainer approves it with 2FA."
+          fi
+          notes=$(mktemp)
+          {
+            echo "\`@truealter/n8n-nodes-alter@${version}\` ${state}"
+            echo
+            echo '```'
+            echo "npm install @truealter/n8n-nodes-alter"
+            echo '```'
+            # This version's CHANGELOG section, keyed on the VERSION rather
+            # than on position. Keying on position takes the newest section,
+            # which is `## [Unreleased]`, so every cut would carry the notes
+            # for work that is not in it.
+            if [ -f CHANGELOG.md ]; then
+              body=$(awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {f=1; next} f && /^## /{exit} f{print}' CHANGELOG.md)
+              if [ -n "$body" ]; then
+                echo
+                echo "$body"
+              fi
+            fi
+          } > "$notes"
+          gh release create "$tag" --title "$tag" --notes-file "$notes" --target "${GITHUB_SHA}"
+          echo "release: cut ${tag} at ${GITHUB_SHA}."
+
+      - name: Correct the notes once the stage is approved
+        # A release cut against a staged version says installers do not have
+        # it yet, and that stops being true the moment somebody approves the
+        # stage. Nothing else would go back and fix it, so the hand dispatch
+        # repairs the page a reader actually lands on. Runs only when the
+        # release exists AND the version is live AND the body still carries
+        # the staged sentence.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          tag="v${version}"
+          gh release view "$tag" >/dev/null 2>&1 || exit 0
+          npm view "@truealter/n8n-nodes-alter@${version}" version >/dev/null 2>&1 || exit 0
+          body=$(gh release view "$tag" --json body --jq '.body')
+          case "$body" in
+            *"approves it with 2FA"*) ;;
+            *) echo "release: ${tag} notes already read as live, nothing to correct."; exit 0 ;;
+          esac
+          printf '%s\n' "$body" \
+            | sed 's/is staged on npm and reaches installers when a maintainer approves it with 2FA\./is on npm, with provenance./' \
+            > corrected-notes.md
+          gh release edit "$tag" --notes-file corrected-notes.md
+          echo "release: ${tag} notes corrected to say the version is live."
+
+      - name: Say what is now waiting on a human
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          if npm view "@truealter/n8n-nodes-alter@${version}" version >/dev/null 2>&1; then
+            exit 0
+          fi
+          {
+            echo "### @truealter/n8n-nodes-alter ${version} is staged, not published"
+            echo
+            echo "It reaches installers only when you approve it with 2FA:"
+            echo
+            echo '```'
+            echo "npm stage list @truealter/n8n-nodes-alter"
+            echo "npm stage view <stage-id>       # inspect before approving"
+            echo "npm stage approve <stage-id>    # prompts for 2FA, publishes"
+            echo "npm stage reject <stage-id>     # discard"
+            echo '```'
+            echo
+            echo "Then re-run this workflow from the Actions tab so the release notes stop saying it is staged."
+          } >> "$GITHUB_STEP_SUMMARY"
