@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-03
+
+### Fixed
+- `package.json` no longer declares `main: "index.js"`. No such file has ever
+  existed in this repository, and `files` ships only `dist`, so the field named
+  a path absent from both the tree and the tarball. n8n loads a community node
+  through the `n8n` key rather than through `main`, so the node itself always
+  worked, but `require('@truealter/n8n-nodes-alter')` failed and the manifest
+  said otherwise. n8n's own starter template carries no `main` field either.
+
+## [0.1.0] - 2026-09-03
+
+First published version. The scaffold below was written on 2026-04-17 and the
+package reached npm on 2026-09-03, so this section is dated by the release
+rather than by the scaffold, and it describes what actually shipped.
+
+### Added
+- `Alter` node with four operations over JSON-RPC: `hello_agent`,
+  `alter_resolve_handle`, `verify_identity` and `register_autonomous`.
+- Node codex metadata (Communication / Productivity / AI) and SVG icon.
+- Apache-2.0 licence.
+- TypeScript build through tsc, with gulp copying the icons, per the
+  n8n-nodes-starter convention.
+
 ### Changed
 - The release workflow goes to npm through trusted publishing on GitHub OIDC.
   The `NPM_TOKEN` secret and its `NODE_AUTH_TOKEN` binding are gone, so this
@@ -17,9 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `files` has never shipped that directory, so the npm listing would have
   opened on a broken image.
 - The masthead subtitle drops its trailing fullstop.
-- The member credential is named `~Alter Member API`. n8n's own lint requires a
-  credential display name to end in API, and the autofix produced
-  `~Alter Member Credential API`, which is not a name anybody would write.
+
+### Removed
+- The `AlterApi` credential. Nothing in the node used it, and shipping a
+  credential a person is asked to fill in and that reaches nothing is worse
+  than not offering one. The four operations above need no member credential.
 
 ### Fixed
 - Lint is green, so the release can actually reach its publish step. It was red
@@ -33,17 +59,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carved placeholder set, and it cannot tell an invented example from a live
   member, which is the point of the check. It is `~yourhandle` now, which reads
   better in that field anyway.
-- README: Compute Belonging now describes a person-role pairing.
-
-## [0.1.0] - 2026-04-17
-
-### Added
-- Initial scaffold of the n8n community node for the ALTER identity MCP server.
-- `Alter` node with four operations over JSON-RPC: `hello_agent`, `alter_resolve_handle`, `verify_identity`, `compute_belonging`.
-- `AlterApi` credential for member-scoped bearer-token authentication on premium tools.
-- Node codex metadata (Communication / Productivity / AI) and SVG icon.
-- Apache-2.0 licence.
-
-### Infrastructure
-- TypeScript build pipeline (tsc) + gulp icon-copy per n8n-nodes-starter convention.
-- Published to npm with provenance.

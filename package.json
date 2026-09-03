@@ -1,6 +1,6 @@
 {
   "name": "@truealter/n8n-nodes-alter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "n8n nodes for ~alter, identity infrastructure. Resolve a ~handle, verify one is known, register your own, and confirm the wire is live, from any n8n workflow.",
   "keywords": [
     "n8n-community-node-package",
@@ -27,7 +27,6 @@
   "engines": {
     "node": ">=20.15"
   },
-  "main": "index.js",
   "scripts": {
     "build": "tsc && gulp build:icons",
     "dev": "tsc --watch",
